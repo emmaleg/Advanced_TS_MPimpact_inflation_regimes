@@ -2,9 +2,21 @@ function pconf = priors_config()
 % Prior hyperparameters.
 % The paper gives functional forms but not all numeric calibrations. 
 
-% Prior for P*: uniform on [Pmin,Pmax] (truncated). (Choice; tune if needed)
-pconf.Pstar.Pmin = 0.00;
-pconf.Pstar.Pmax = 0.15;
+% Prior for P*: uniform on [Pmin,Pmax] (truncated)
+% Paper-like calibration around cP * mean(pi). Here mean(pi) is fixed to
+% the mean announced by Canova & Forero in the paper
+pi_bar = 0.0341;   
+cP     = 1.5;
+cPP    = cP * pi_bar;
+
+pconf.Pstar.Pmin = 0.95 * cPP;
+pconf.Pstar.Pmax = 1.05 * cPP;
+
+% to keep track
+pconf.Pstar.cP  = cP;
+pconf.Pstar.mu  = cPP;
+pconf.Pstar.sd  = (pconf.Pstar.Pmax - pconf.Pstar.Pmin)/6;
+pconf.Pstar.var = pconf.Pstar.sd^2;
 
 % Prior for d: uniform on {1,...,dmax} (choice; paper says discrete multinomial) 
 pconf.d.uniform = true;

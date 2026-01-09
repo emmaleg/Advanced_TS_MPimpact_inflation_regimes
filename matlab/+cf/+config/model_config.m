@@ -5,7 +5,7 @@ mconf.n = 8;
 
 % --- Not explicitly stated in the BCRP PDF: choose defaults ---
 % p: monthly VAR lag length. (Common choice: 12)
-mconf.p = 12;
+mconf.p = 3;
 
 % J: lags of ln(lambda) in mean (includes j=0). Keep small.
 mconf.J = 2;

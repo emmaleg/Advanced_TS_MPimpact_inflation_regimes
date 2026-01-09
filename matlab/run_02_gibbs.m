@@ -42,20 +42,36 @@ fprintf('[run_02_gibbs] Saved: %s\n', outFile);
 
 % --- Quick plots ---
 if isfield(mcmc,'make_quick_plots') && mcmc.make_quick_plots
-    Sm = res.S_mean;
-    high = (Sm <= 0.5);
+    figDir = fullfile(paths.output_mcmc, 'quickplots');
+    if ~exist(figDir,'dir'); mkdir(figDir); end
 
-    figure('Name','Fig3-like: Inflation and High-regime indicator');
-    yyaxis left;
-    plot(ds.dates, ds.Z(:, mconf.inflation_index_in_Z), 'LineWidth', 1.2);
-    ylabel('Inflation');
+    cf.plot.plot_inflation_high_regime(ds, mconf, res, ...
+        'savePath', fullfile(figDir,'inflation_high_regime.png'));
 
-    yyaxis right;
-    stem(ds.dates(high), ones(nnz(high),1), 'filled');
-    ylim([0 1.2]);
-    ylabel('High regime indicator');
-
-    figure('Name','Fig4-like: Posterior of P*');
-    histogram(res.draws.Pstar, 50);
-    xlabel('P*'); ylabel('count');
+    cf.plot.plot_posterior_Pstar(res, 'savePath', fullfile(figDir,'posterior_Pstar.png'));
+    cf.plot.plot_posterior_dstar(res, 'savePath', fullfile(figDir,'posterior_dstar.png'));
+    cf.plot.plot_posterior_F(res,     'savePath', fullfile(figDir,'posterior_F.png'));
+    cf.plot.plot_posterior_mu(res,    'savePath', fullfile(figDir,'posterior_mu.png'));
+    cf.plot.plot_posterior_Q(res,     'savePath', fullfile(figDir,'posterior_Q.png'));
 end
+
+
+% % --- Quick plots ---
+% if isfield(mcmc,'make_quick_plots') && mcmc.make_quick_plots
+%     Sm = res.S_mean;
+%     high = (Sm <= 0.5);
+% 
+%     figure('Name','Fig3-like: Inflation and High-regime indicator');
+%     yyaxis left;
+%     plot(ds.dates, ds.Z(:, mconf.inflation_index_in_Z), 'LineWidth', 1.2);
+%     ylabel('Inflation');
+% 
+%     yyaxis right;
+%     stem(ds.dates(high), ones(nnz(high),1), 'filled');
+%     ylim([0 1.2]);
+%     ylabel('High regime indicator');
+% 
+%     figure('Name','Fig4-like: Posterior of P*');
+%     histogram(res.draws.Pstar, 50);
+%     xlabel('P*'); ylabel('count');
+% end

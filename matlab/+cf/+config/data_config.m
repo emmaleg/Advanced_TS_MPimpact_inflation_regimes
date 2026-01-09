@@ -4,7 +4,7 @@ function dconf = data_config()
 % We download from FRED (no API key).
 % Transformations: YoY log growth for levels; rates divided by 100.
 
-dconf.sample_start = datetime(1960,1,1);
+dconf.sample_start = datetime(1963,1,1);
 dconf.sample_end   = datetime(2023,6,1);  % paper sample 
 
 % Variable order must match the paper / Table 1 (used in A.8)
