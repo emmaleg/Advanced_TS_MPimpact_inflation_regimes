@@ -3,7 +3,7 @@ function tt = read_fred_csv(csvFile)
 T = readtable(csvFile, 'Delimiter',',', 'ReadVariableNames', true);
 
 % DATE -> datetime
-dt = datetime(T{:,1}, 'InputFormat','yyyy-MM-dd', 'TimeZone','UTC');
+dt = datetime(T{:,1}, 'InputFormat','yyyy-MM-dd', 'TimeZone','');
 val = T{:,2};
 if iscell(val)
     % sometimes readtable returns cellstr

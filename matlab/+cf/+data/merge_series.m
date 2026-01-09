@@ -9,6 +9,6 @@ tt.Properties.VariableNames = names(1);
 for i=2:numel(tt_list)
     tmp = tt_list{i};
     tmp.Properties.VariableNames = names(i);
-    tt = synchronize(tt, tmp, 'union', 'mean'); %#ok<*AGROW>
+    tt = synchronize(tt, tmp, 'union', 'mean'); 
 end
 end
