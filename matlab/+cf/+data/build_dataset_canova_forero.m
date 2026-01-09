@@ -22,6 +22,10 @@ end
 
 % Merge to one timetable
 tt_all = cf.data.merge_series(tts, ids);
+sp_id = dconf.series.SP500;  % = 'SPASTT01USM661N'
+if ismember(sp_id, tt_all.Properties.VariableNames)
+    tt_all.Properties.VariableNames{strcmp(tt_all.Properties.VariableNames, sp_id)} = 'SP500';
+end
 
 % Rates divide by 100
 for i=1:numel(dconf.transform.rate_div100)
