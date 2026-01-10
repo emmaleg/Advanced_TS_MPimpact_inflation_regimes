@@ -10,7 +10,7 @@ if isfolder(fullfile(pwd,'matlab')) && isfolder(fullfile(pwd,'data'))
 elseif isfolder(fullfile(pwd,'+cf'))
     rootDir = fileparts(pwd);            % if launched from root/matlab
 else
-    error('Lance depuis la racine du repo ou depuis root/matlab.');
+    error('Launch from root or from root/matlab');
 end
 
 addpath(genpath(fullfile(rootDir,'matlab')));
@@ -42,7 +42,7 @@ fprintf('[run_02_gibbs] Saved: %s\n', outFile);
 
 % --- Quick plots ---
 if isfield(mcmc,'make_quick_plots') && mcmc.make_quick_plots
-    figDir = fullfile(paths.output_mcmc, 'quickplots');
+    figDir = fullfile(paths.output_figures, 'quickplots');
     if ~exist(figDir,'dir'); mkdir(figDir); end
 
     cf.plot.plot_inflation_high_regime(ds, mconf, res, ...
