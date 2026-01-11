@@ -1,28 +1,42 @@
-function ll = loglik_full(Z, h, S, Phi1, Phi2, A1, A2, sigma2, p, J)
+function ll = loglik_full(Z, h, S, Phi1, Phi2, A1, A2, sigma2, p, J, Svalid)
 % Full log-likelihood over usable t after building regressors.
+%
+% KEY: if Svalid is provided, periods where Svalid(t)=false are excluded
+% from the likelihood (regime undefined for t<=d).
 
-[YY, XX] = cf.model.build_regressors(Z, h, p, J);
+if nargin < 11 || isempty(Svalid)
+    Svalid = true(size(S));
+end
 
-% Map these rows back to original time indices:
-% build_regressors drops first p rows and then possibly drops NaNs from h lags.
-% For simplicity: rebuild an index mask similarly.
+[YY, XX] = cf.model.build_regressors(Z, h, p, J); 
+
+% Rebuild Xfull to map back to original t indices (same logic as your file)
 [T,~] = size(Z);
 Xlag = cf.model.make_lag_matrix(Z,p);
 Hlags = NaN(T,J+1);
-for j=0:J, Hlags(:,j+1)= lagmatrix(h,j); end
+for j=0:J
+    Hlags(:,j+1) = lagmatrix(h,j);
+end
 Xfull = [ones(T,1), Xlag, Hlags];
+
 start = p+1;
 Y0 = Z(start:end,:);
 X0 = Xfull(start:end,:);
 good = all(isfinite(X0),2) & all(isfinite(Y0),2);
+
 idx = (start:T)';
 idx = idx(good);
+
+% KEY FIX: drop times where regime is undefined
+idx = idx(Svalid(idx));
 
 ll = 0;
 for ii=1:numel(idx)
     t = idx(ii);
+
     z_t = Z(t,:)';
     x_t = Xfull(t,:)';
+
     if S(t)==1
         ll = ll + cf.model.loglik_obs(z_t, x_t, Phi1, A1, sigma2, h(t));
     else

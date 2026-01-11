@@ -5,6 +5,9 @@ function [Z0_out, Zs_out] = simulate_pair(Zhist, hHist, D, mconf, iconf, shockTy
 %   e_1^0 = 0 (vector)
 %   e_1^δ = δ in the targeted shock component, and 0 elsewhere.
 % For t>=2, use common random numbers (same e_t in baseline and shock).
+%
+% This version additionally supports shock normalization to match paper magnitudes:
+% - "target_1sd": impact(target var) equals 1 sd surprise in that variable (paper for FFR).
 
 H = iconf.H;
 p = iconf.p;
@@ -98,11 +101,32 @@ for t=1:H
     % shock injection only at t=1
     if t==1
         if shockType=="conventional"
+            jShock  = iconf.shock_conventional;
+            iTarget = iconf.target_var_conventional;
+
             sgn = cf.irf.normalize_sign_conventional(B, iconf);
-            e(iconf.shock_conventional) = sgn * iconf.delta;
+
+            epsj = shock_size_for_target(B, jShock, iTarget, iconf);
+            if ~isfinite(epsj)
+                Z0_out = nan(H,n); Zs_out = nan(H,n);
+                return
+            end
+
+            e(jShock) = sgn * epsj;
+
         else
+            jShock  = iconf.shock_liquidity;
+            iTarget = iconf.target_var_liquidity;
+
             sgn = cf.irf.normalize_sign_liquidity(B, iconf);
-            e(iconf.shock_liquidity) = sgn * iconf.delta;
+
+            epsj = shock_size_for_target(B, jShock, iTarget, iconf);
+            if ~isfinite(epsj)
+                Z0_out = nan(H,n); Zs_out = nan(H,n);
+                return
+            end
+
+            e(jShock) = sgn * epsj;
         end
     end
 
@@ -138,5 +162,51 @@ end
 
 Z0_out = Z0(p0+1:p0+H, :);
 Zs_out = Zs(p0+1:p0+H, :);
+
+end
+
+
+% === local helper: compute shock size to match a target normalization ===
+function epsj = shock_size_for_target(B, jShock, iTarget, iconf)
+
+imp = B(iTarget, jShock);
+
+minImp = 1e-6;
+if isfield(iconf,'min_norm_impact') && ~isempty(iconf.min_norm_impact)
+    minImp = iconf.min_norm_impact;
+end
+
+if ~isfinite(imp) || abs(imp) < minImp
+    epsj = NaN;
+    return
+end
+
+mode = "structural";
+if isfield(iconf,'shock_norm_mode') && ~isempty(iconf.shock_norm_mode)
+    mode = iconf.shock_norm_mode;
+end
+
+if mode=="structural"
+    % old behavior: e_j = delta
+    epsj = iconf.delta;
+
+elseif mode=="target_abs"
+    % choose e_j so that impact on target variable equals +/- delta (absolute units)
+    epsj = iconf.delta / abs(imp);
+
+elseif mode=="target_1sd"
+    % choose e_j so that impact on target equals +/- delta * sd(innovation(target))
+    Omega = B * B.';
+    v = Omega(iTarget, iTarget);
+    if ~isfinite(v) || v < 0
+        epsj = NaN;
+        return
+    end
+    sdTarget = sqrt(v);
+    epsj = (iconf.delta * sdTarget) / abs(imp);
+
+else
+    error("Unknown iconf.shock_norm_mode = %s", mode);
+end
 
 end

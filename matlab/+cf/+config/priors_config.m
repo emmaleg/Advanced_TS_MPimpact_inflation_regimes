@@ -6,7 +6,7 @@ pconf = struct();
 %% --- P* : Truncated Normal around cP * Pbar ---
 % Pbar is the sample mean of inflation. For now, fixed to 0.0341 (given in
 % the article)
-pi_bar = 0.0341;
+pi_bar = 0.0332;  % 0.0341 announced in an early version of the paper
 cP     = 1.5;
 
 muP  = cP * pi_bar;

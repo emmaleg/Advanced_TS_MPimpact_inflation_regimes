@@ -5,11 +5,23 @@ iconf = struct();
 
 iconf.remise = false; % for the draws 
 
-% Horizons / simulation counts (paper: H=36, S=1000, L=200, delta=1)
+% Horizons / simulation counts (paper: H=36, S=1000, L=200)
 iconf.H     = 36;
 iconf.S     = 1000;   % number of IRF draws (outer loop)
 iconf.L     = 200;    % Monte Carlo reps per draw to approximate expectations
+
+% Shock magnitude parameter:
+% - if shock_norm_mode == "structural"   : e_j = +/- delta
+% - if shock_norm_mode == "target_abs"   : impact(target) = +/- delta
+% - if shock_norm_mode == "target_1sd"   : impact(target) = +/- delta * sd(innovation(target))
+% Paper conventional shock is "one standard deviation surprise increase in the short-term rate".
 iconf.delta = 1;
+
+% --- NEW: shock normalization (recommended to match paper magnitudes) ---
+iconf.shock_norm_mode = "target_1sd";      % "structural" | "target_abs" | "target_1sd"
+iconf.min_norm_impact = 1e-6;              % safeguard when B(target,shock) is tiny
+iconf.target_var_conventional = 4;         % set below after indices are defined
+iconf.target_var_liquidity    = 6;         % default: normalize liquidity by M2 impact
 
 % Liquidity shock: keep short-term rate fixed for Hlock months (paper: 24; appendix H uses 12)
 iconf.ffr_lock_h = 24;
@@ -23,6 +35,10 @@ iconf.idx_slope = 5;
 iconf.idx_m2    = 6;
 iconf.idx_pcom  = 7;
 iconf.idx_sp500 = 8;
+
+% Now that indices exist, set targets cleanly:
+iconf.target_var_conventional = iconf.idx_ffr;  % paper normalization
+iconf.target_var_liquidity    = iconf.idx_m2;   % reasonable default; change if desired
 
 % Shock indices (Appendix A matrix A, columns 4 and 6 are the policy shocks)
 iconf.shock_conventional = 4;
@@ -42,3 +58,4 @@ iconf.seed = 1;
 iconf.dmax = mconf.dmax;
 
 end
+

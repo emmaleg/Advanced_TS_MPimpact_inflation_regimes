@@ -1,5 +1,5 @@
 function res = gibbs_threshold_bvar_sv(ds, mconf, pconf, mcmc)
-% Gibbs sampler for Threshold-BVAR-SV with scalar lambda_t.
+% Gibbs sampler for Threshold-BVAR with scalar lambda_t SV.
 % Blocks follow Appendix A structure. 
 
 rng(mcmc.seed);
