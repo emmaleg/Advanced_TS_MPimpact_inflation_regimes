@@ -1,52 +1,67 @@
 function pconf = priors_config()
-% Prior hyperparameters.
-% The paper gives functional forms but not all numeric calibrations. 
+% Prior hyperparameters, aligned with Table 2
 
-% Prior for P*: uniform on [Pmin,Pmax] (truncated)
-% Paper-like calibration around cP * mean(pi). Here mean(pi) is fixed to
-% the mean announced by Canova & Forero in the paper
-pi_bar = 0.0341;   
+pconf = struct();
+
+%% --- P* : Truncated Normal around cP * Pbar ---
+% Pbar is the sample mean of inflation. For now, fixed to 0.0341 (given in
+% the article)
+pi_bar = 0.0341;
 cP     = 1.5;
-cPP    = cP * pi_bar;
 
-pconf.Pstar.Pmin = 0.95 * cPP;
-pconf.Pstar.Pmax = 1.05 * cPP;
+muP  = cP * pi_bar;
+Pmin = 0.95 * muP;
+Pmax = 1.05 * muP;
+sdP  = (Pmax - Pmin) / 6;
 
-% to keep track
-pconf.Pstar.cP  = cP;
-pconf.Pstar.mu  = cPP;
-pconf.Pstar.sd  = (pconf.Pstar.Pmax - pconf.Pstar.Pmin)/6;
-pconf.Pstar.var = pconf.Pstar.sd^2;
+pconf.Pstar.cP   = cP;
+pconf.Pstar.Pbar = pi_bar;
 
-% Prior for d: uniform on {1,...,dmax} (choice; paper says discrete multinomial) 
-pconf.d.uniform = true;
+pconf.Pstar.mu   = muP;
+pconf.Pstar.sd   = sdP;
+pconf.Pstar.Pmin = Pmin;
+pconf.Pstar.Pmax = Pmax;
 
-% Prior for Phi (VAR coefficients): Minnesota-like, implemented as diagonal normal on vec(B)
-% B is k x n in Y = X B + E
-pconf.Phi.mean = 0;     % centered at 0 (since we use growth rates)
-pconf.Phi.tight = 0.2;  % overall tightness (choice)
+% NOTE: if your draw_Pstar_mh assumes UNIFORM prior, you must add the log prior
+% term there to be strictly paper-consistent.
+
+%% --- d : uniform on {1,...,dmax} ---
+pconf.d.dmax = 6;  % paper: dmax=6
+
+%% --- Phi (VAR coefficients): Minnesota diagonal, mean 0 ---
+% Paper: phi_i = 0, V_i diagonal Minnesota.
+pconf.Phi.mean      = 0.0;
+pconf.Phi.tight     = 0.2;   % reasonable Minnesota overall tightness (paper says "Minnesota", not the exact number)
 pconf.Phi.lag_decay = 1.0;
 
-% Prior for alpha: N(mu_alpha, Omega_alpha) (paper form; numeric choice) 
-pconf.alpha.mu = zeros(22,1);
-pconf.alpha.Omega = 10 * eye(22);
+%% --- alpha (A.8 free parameters): N(0, I) ---
+na = 22; % paper: dim(alpha)=22 from A.8
+pconf.alpha.mu    = zeros(na,1);
+pconf.alpha.Omega = eye(na);
 
-% Prior for sigma^2 (diagonal Σ): inverse-gamma (form in A.14; numeric choice) 
-% We implement: sigma2 ~ IG(a0,b0) with density proportional x^(-a0-1) exp(-b0/x)
-pconf.sigma2.a0 = 5;
-pconf.sigma2.b0 = 0.01;
+%% --- sigma^2_j : IG with d_sigma=10, sigma=0.01 ---
+% Use IG(a,b) with density proportional x^(-a-1) exp(-b/x).
+% Match scaled-inv-chi-square: a = d/2, b = d*s^2/2.
+d_sig = 10;
+s2_sig = 0.01;
 
-% Prior for lambda AR(1): h_t = ln lambda_t
-% mu ~ N(mu0,V0)
-pconf.lambda.mu0 = -1.0;
+pconf.sigma2.a0 = d_sig/2;
+pconf.sigma2.b0 = d_sig*s2_sig/2;
+
+%% --- h_t = log(lambda_t) AR(1): mu, F, Q ---
+% mu ~ N(0,1)
+pconf.lambda.mu0 = 0.0;
 pconf.lambda.V0  = 1.0;
 
-% F ~ N(F0,VF0) truncated to (0,1) 
-pconf.lambda.F0 = 0.95;
-pconf.lambda.VF0 = 0.05^2;
+% F ~ TruncN(0.8, 0.01) on (0,1)  -> sd = 0.1
+pconf.lambda.F0  = 0.8;
+pconf.lambda.VF0 = 0.01;
 
-% Q ~ IG(aQ,bQ) (form A.25; numeric choice) 
-pconf.lambda.aQ0 = 5;
-pconf.lambda.bQ0 = 0.05;
+% Q ~ IG(dQ/2, dQ*Qbar/2) with dQ=10, Qbar=0.01 (common choice consistent with d_sigma, sigma)
+dQ   = 10;
+Qbar = 0.01;
+
+pconf.lambda.aQ0 = dQ/2;
+pconf.lambda.bQ0 = dQ*Qbar/2;
 
 end

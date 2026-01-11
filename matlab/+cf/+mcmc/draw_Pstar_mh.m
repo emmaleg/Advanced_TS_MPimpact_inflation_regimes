@@ -1,12 +1,13 @@
 function st = draw_Pstar_mh(st, Z, mconf, pconf, mcmc, iter)
 % RW Metropolis for P* with simple adaptation (Haario-like in 1D).
+% Prior: Truncated Normal N(mu,sd^2) truncated to [Pmin,Pmax] (Table 2).
 
 Pcur = st.Pstar;
-sd = st.Pstar_prop_sd;
+sd_prop = st.Pstar_prop_sd;
 
-Pcan = Pcur + sd*randn();
+Pcan = Pcur + sd_prop*randn();
 
-% prior truncation
+% --- prior truncation (hard bounds) ---
 if Pcan <= pconf.Pstar.Pmin || Pcan >= pconf.Pstar.Pmax
     st.Pstar_hist(iter) = Pcur;
     return;
@@ -22,14 +23,23 @@ end
 
 st.accept.Pstar_trials = st.accept.Pstar_trials + 1;
 
-% log posterior ratio: uniform prior cancels inside bounds
-ll_cur = cf.model.loglik_full(Z, st.h, st.S, st.Phi1, st.Phi2, st.A1, st.A2, st.sigma2, mconf.p, mconf.J);
-ll_can = cf.model.loglik_full(Z, st.h, Scan,   st.Phi1, st.Phi2, st.A1, st.A2, st.sigma2, mconf.p, mconf.J);
+% --- likelihood under current/candidate regimes ---
+ll_cur = cf.model.loglik_full(Z, st.h, st.S,  st.Phi1, st.Phi2, st.A1, st.A2, st.sigma2, mconf.p, mconf.J);
+ll_can = cf.model.loglik_full(Z, st.h, Scan,  st.Phi1, st.Phi2, st.A1, st.A2, st.sigma2, mconf.p, mconf.J);
 
-acc = min(1, exp(ll_can - ll_cur));
+% --- Truncated Normal prior contribution (normalization cancels in ratio) ---
+muP = pconf.Pstar.mu;
+sdP = pconf.Pstar.sd;
+
+lp_cur = -0.5 * ((Pcur - muP)/sdP)^2;
+lp_can = -0.5 * ((Pcan - muP)/sdP)^2;
+
+log_acc = (ll_can + lp_can) - (ll_cur + lp_cur);
+acc = exp(min(0, log_acc));
+
 if rand() < acc
     st.Pstar = Pcan;
-    st.S = Scan;
+    st.S     = Scan;
     st.accept.Pstar = st.accept.Pstar + 1;
 end
 
