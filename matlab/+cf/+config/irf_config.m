@@ -7,8 +7,8 @@ iconf.remise = false; % for the draws
 
 % Horizons / simulation counts (paper: H=36, S=1000, L=200, delta=1)
 iconf.H     = 36;
-iconf.S     = 200; %1000;   % number of IRF draws (outer loop)
-iconf.L     = 50; %200;    % Monte Carlo reps per draw to approximate expectations
+iconf.S     = 1000;   % number of IRF draws (outer loop)
+iconf.L     = 200;    % Monte Carlo reps per draw to approximate expectations
 iconf.delta = 1;
 
 % Liquidity shock: keep short-term rate fixed for Hlock months (paper: 24; appendix H uses 12)

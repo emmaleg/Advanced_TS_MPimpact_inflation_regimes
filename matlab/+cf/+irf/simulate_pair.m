@@ -1,11 +1,16 @@
 function [Z0_out, Zs_out] = simulate_pair(Zhist, hHist, D, mconf, iconf, shockType, e_all, eta_all)
 % Simulate baseline and shock scenario for H horizons, allowing regimes to switch endogenously.
+%
+% IMPORTANT (Appendix B): at t=1 we must have
+%   e_1^0 = 0 (vector)
+%   e_1^δ = δ in the targeted shock component, and 0 elsewhere.
+% For t>=2, use common random numbers (same e_t in baseline and shock).
 
 H = iconf.H;
-p = iconf.p;                 % VAR lag order
-p0 = size(Zhist,1);          % stored history length (>= max(p,d))
-J = iconf.J;
-n = size(Zhist,2);
+p = iconf.p;
+p0 = size(Zhist,1);
+J  = iconf.J;
+n  = size(Zhist,2);
 
 % allocate full histories (p0 + H)
 Z0 = zeros(p0+H, n);
@@ -13,14 +18,15 @@ Zs = zeros(p0+H, n);
 Z0(1:p0,:) = Zhist;
 Zs(1:p0,:) = Zhist;
 
-% lambda (log) history for regressor: [h_t, h_{t-1}, h_{t-2}]
-h0 = hHist(:);  % length J+1, ordered [h_t, h_{t-1}, h_{t-2}]
+% lambda (log) history for regressor: h0 ordered [h_t, h_{t-1}, ..., h_{t-J}]
+h0     = hHist(:);
 h_path = zeros(H,1);
-h_prev = h0(1);
 
+% forecast log-lambda (eq. (5)), common to both scenarios
+h_prev = h0(1);
+Qpos   = max(D.Q, 1e-12);
 for t=1:H
-    % forecast log-lambda (eq. (5))
-    h_prev = D.mu + D.F*(h_prev - D.mu) + sqrt(D.Q)*eta_all(t);
+    h_prev    = D.mu + D.F*(h_prev - D.mu) + sqrt(Qpos)*eta_all(t);
     h_path(t) = h_prev;
 end
 
@@ -38,28 +44,26 @@ for t=1:H
         Phi = D.Phi2; A = D.A2;
     end
 
-    % build regressor x_t = [1; Z_{t-1}; ...; Z_{t-p}; h_t; h_{t-1}; h_{t-2}]
-    x = cf.irf.make_xt(Z0, idx, p, h_path, h0, t, J);
-
+    % build regressor x_t = [1; Z_{t-1}; ...; Z_{t-p}; h_t; ...; h_{t-J}]
+    x   = cf.irf.make_xt(Z0, idx, p, h_path, h0, t, J);
     muZ = Phi * x; % n x 1
 
     % impact matrix B = A^{-1} * sqrt(lambda_t) * diag(sigma)
     lam_t = exp(h_path(t));
-    B = (A \ eye(n)) * (sqrt(lam_t) * diag(D.sigma));
+    B     = A \ (sqrt(lam_t) * diag(D.sigma));
 
-    e = e_all(t,:)';
-    % no-shock: zero out target component at t=1 only
+    % shocks:
+    % t=1: e1^0 = 0 vector
+    % t>=2: common random shocks
     if t==1
-        if shockType=="conventional"
-            e(iconf.shock_conventional) = 0;
-        else
-            e(iconf.shock_liquidity) = 0;
-        end
+        e = zeros(n,1);
+    else
+        e = e_all(t,:)';
     end
 
     Z0(idx,:) = (muZ + B*e).';
 
-    % guard against numerical explosion (explosive draws can blow up late horizons)
+    % guard against numerical explosion
     if any(~isfinite(Z0(idx,:))) || max(abs(Z0(idx,:))) > 1e6
         Z0_out = nan(H,n); Zs_out = nan(H,n);
         return
@@ -78,15 +82,20 @@ for t=1:H
         Phi = D.Phi2; A = D.A2;
     end
 
-    x = cf.irf.make_xt(Zs, idx, p, h_path, h0, t, J);
+    x   = cf.irf.make_xt(Zs, idx, p, h_path, h0, t, J);
     muZ = Phi * x;
 
     lam_t = exp(h_path(t));
-    B = (A \ eye(n)) * (sqrt(lam_t) * diag(D.sigma));
+    B     = A \ (sqrt(lam_t) * diag(D.sigma));
 
-    e = e_all(t,:)';
+    % common random numbers:
+    if t==1
+        e = zeros(n,1);  % start from 0 vector at impact
+    else
+        e = e_all(t,:)';
+    end
 
-    % sign normalization + delta at t=1
+    % shock injection only at t=1
     if t==1
         if shockType=="conventional"
             sgn = cf.irf.normalize_sign_conventional(B, iconf);
@@ -98,7 +107,23 @@ for t=1:H
     end
 
     % liquidity: enforce FFR locked for first ffr_lock_h months (Appendix B step 5c)
+    % We implement "IRF(FFR)=0" by matching the BASELINE FFR path.
     if shockType=="liquidity" && t <= iconf.ffr_lock_h
+        % If the impact of the control shock on FFR is too small, enforcing the lock
+        % requires a gigantic control shock -> explosive scales. Skip such draws.
+        jctrl = iconf.shock_ffr_control;
+        denom = B(iconf.idx_ffr, jctrl);
+
+        minImpact = 1e-6;
+        if isfield(iconf,'min_ffr_control_impact') && ~isempty(iconf.min_ffr_control_impact)
+            minImpact = iconf.min_ffr_control_impact;
+        end
+
+        if ~isfinite(denom) || abs(denom) < minImpact
+            Z0_out = nan(H,n); Zs_out = nan(H,n);
+            return
+        end
+
         r_desired = Z0(idx, iconf.idx_ffr); % match baseline path => IRF(R)=0
         e = cf.irf.enforce_ffr(B, muZ, e, r_desired, iconf);
     end
