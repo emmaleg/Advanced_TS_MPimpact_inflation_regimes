@@ -10,18 +10,44 @@ if Nd < 10
 end
 
 % --- default sampling policy ---
-% Prefer WITHOUT replacement when feasible (reduces duplicates, more stable quantiles)
 if ~isfield(iconf,'remise')
-    iconf.remise = (Nd < iconf.S);  % if plenty of draws, default no-replacement
+    iconf.remise = (Nd < iconf.S);  
 end
 
 Sgoal = iconf.S;
 
-% --- build valid tStar candidates (avoid NaNs + ensure lags exist) ---
+% =========================================================================
+% CONSTRUCTION DES CANDIDATS (CORRIGÉ)
+% =========================================================================
 p = mconf.p;
+
+% 1. Définition de tMin (C'est la ligne qui vous manquait)
+% On doit commencer après le max des lags (p, J) et du délai (dmax)
 tMin = max([p, iconf.J, iconf.dmax]) + 1;
 
+% 2. Candidats par défaut (tout l'échantillon valide)
 tCandidates = (tMin:T)';
+
+% 3. FILTRE "SUBSET" (Pour Volcker, etc.)
+if isfield(iconf, 'subset_indices') && ~isempty(iconf.subset_indices)
+    % On ne garde que l'intersection entre les dates mathématiquement valides
+    % et les dates demandées par l'utilisateur
+    tCandidates = intersect(tCandidates, iconf.subset_indices);
+    
+    if isempty(tCandidates)
+        % On renvoie une structure vide propre au lieu de planter
+        warning("Aucune date valide trouvée dans la période demandée !");
+        res = struct();
+        res.h = (0:iconf.H-1)';
+        res.low  = cf.irf.summarize_irfs([]);
+        res.high = cf.irf.summarize_irfs([]);
+        res.shockType = shockType;
+        return;
+    end
+    fprintf('[compute_irf:%s] Restriction active : %d dates candidates retenues.\n', shockType, numel(tCandidates));
+end
+% =========================================================================
+
 % need inflation lag at least up to dmax
 okInf = isfinite(Z(tCandidates - iconf.dmax, iconf.idx_inf));
 tCandidates = tCandidates(okInf);
@@ -34,7 +60,6 @@ end
 draw_order = [];
 draw_ptr   = 1;
 if ~iconf.remise
-    % try to use as many unique draws as possible
     draw_order = randperm(Nd, Nd);
 end
 
@@ -46,18 +71,17 @@ kept = 0;
 tries = 0;
 
 % tries budget
-maxTries = max(Sgoal*5, Sgoal+200);     % good default even with many rejections
-maxTries = min(maxTries, 5*Nd + 500);   % avoid pathological loops when Nd huge
+maxTries = max(Sgoal*5, Sgoal+200);     
+maxTries = min(maxTries, 5*Nd + 500);   
 
 while kept < Sgoal && tries < maxTries
     tries = tries + 1;
 
-    % --- draw index (with fallback) ---
+    % --- draw index ---
     if iconf.remise
         kdraw = randi(Nd);
     else
         if draw_ptr > Nd
-            % fallback to with replacement to reach Sgoal if too many rejections
             iconf.remise = true;
             kdraw = randi(Nd);
         else
@@ -71,7 +95,7 @@ while kept < Sgoal && tries < maxTries
 
     D = cf.irf.get_draw(post, kdraw, T, n, iconf, mconf);
 
-    % 1) stability filter (VAR part only)
+    % 1) stability filter
     [st1, ~] = cf.irf.is_stable_var(D.Phi1, n, p);
     [st2, ~] = cf.irf.is_stable_var(D.Phi2, n, p);
     if ~(st1 && st2)
@@ -83,16 +107,16 @@ while kept < Sgoal && tries < maxTries
     if ~isfinite(inf_lag)
         continue
     end
-    S0_low = (inf_lag <= D.Pstar); % S=1 = low inflation regime in your convention
+    S0_low = (inf_lag <= D.Pstar); 
 
-    irf = cf.irf.irf_one_draw(ds, D, tStar, mconf, iconf, shockType); % H x n
+    irf = cf.irf.irf_one_draw(ds, D, tStar, mconf, iconf, shockType); 
 
     % 2) numerical guard
     if any(~isfinite(irf(:)))
         continue
     end
 
-    % (optional) magnitude guard (prevents 1–2 crazy draws flattening quantiles)
+    % (optional) magnitude guard
     if isfield(iconf,'max_abs_irf') && ~isempty(iconf.max_abs_irf)
         if max(abs(irf(:))) > iconf.max_abs_irf
             continue
@@ -117,21 +141,10 @@ if kept < Sgoal
     warning("compute_irf_for_shock: kept only %d/%d draws after %d tries.", kept, Sgoal, tries);
 end
 
-% warn if one regime is too thin
-if size(irf_low,3) < 30
-    warning("[irf:%s] Low-regime IRFs based on only %d draws -> quantiles may be noisy.", shockType, size(irf_low,3));
-end
-if size(irf_high,3) < 30
-    warning("[irf:%s] High-regime IRFs based on only %d draws -> quantiles may be noisy.", shockType, size(irf_high,3));
-end
-
 res = struct();
 res.h = (0:iconf.H-1)';
-
 res.low  = cf.irf.summarize_irfs(irf_low);
 res.high = cf.irf.summarize_irfs(irf_high);
-
 res.shockType = shockType;
+
 end
-
-
