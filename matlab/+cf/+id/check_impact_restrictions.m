@@ -59,4 +59,3 @@ minFFR = max(1e-6, 1e-3 * sc4);
 ok = ok && isfinite(B(4,4)) && abs(B(4,4)) >= minFFR;
 
 end
-

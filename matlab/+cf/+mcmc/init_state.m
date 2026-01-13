@@ -21,11 +21,34 @@ kPhi = 1 + n*mconf.p + (mconf.J+1);
 st.Phi1 = zeros(n, kPhi);
 st.Phi2 = zeros(n, kPhi);
 
-% alpha -> A
+% alpha -> A (initialize inside the constrained set if requested)
 st.alpha1 = zeros(mconf.id.n_alpha,1);
 st.alpha2 = zeros(mconf.id.n_alpha,1);
 st.A1 = cf.id.alpha_to_A(st.alpha1);
 st.A2 = cf.id.alpha_to_A(st.alpha2);
+
+if isfield(mconf,'id') && isfield(mconf.id,'enforce_sign_zero') && mconf.id.enforce_sign_zero
+    tol     = mconf.id.zero_tol;
+    lambda0 = exp(mean(st.h)); % scalar >0 (scaling doesn't affect signs)
+
+    [st.alpha1, st.A1] = draw_feasible_alpha(pconf, st.sigma2, lambda0, tol, mconf.id.n_alpha, 5000);
+    [st.alpha2, st.A2] = draw_feasible_alpha(pconf, st.sigma2, lambda0, tol, mconf.id.n_alpha, 5000);
+end
+
+% ---- local helper ----
+function [alpha, A] = draw_feasible_alpha(pconf, sigma2, lambda0, tol, na, maxTries)
+    L = chol((pconf.alpha.Omega + pconf.alpha.Omega')/2, 'lower');
+    mu = pconf.alpha.mu;
+
+    for it = 1:maxTries
+        alpha = mu + L*randn(na,1);
+        A     = cf.id.alpha_to_A(alpha);
+        if cf.id.check_impact_restrictions(A, sigma2, lambda0, tol)
+            return;
+        end
+    end
+    error("init_state: could not find feasible alpha after %d tries. Relax tol or adjust priors/proposal.", maxTries);
+end
 
 % initial regimes
 Pi = Z(:, mconf.inflation_index_in_Z);

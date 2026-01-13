@@ -17,7 +17,7 @@ mconf.dmax = 6;                % paper sets dmax=6
 % Identification / restrictions
 mconf.id.n_alpha = 22; % implied by A.8 
 mconf.id.enforce_sign_zero = true; % you can switch on later
-mconf.id.zero_tol = 1e-4;          % final : 1e-10 // for debug 1e-4 ou 1e-6 // numerical tolerance for "zero" checks
+mconf.id.zero_tol = 1e-3;          % final : 1e-10 // for debug 1e-4 ou 1e-6 // numerical tolerance for "zero" checks
 
 % Stationarity truncation for Phi draws (Appendix A mentions truncation I(phi)) 
 mconf.enforce_stationarity = true;

@@ -17,8 +17,8 @@ iconf.L     = 200;    % Monte Carlo reps per draw to approximate expectations
 % Paper conventional shock is "one standard deviation surprise increase in the short-term rate".
 iconf.delta = 1;
 
-% --- NEW: shock normalization (recommended to match paper magnitudes) ---
-iconf.shock_norm_mode = "target_1sd";      % "structural" | "target_abs" | "target_1sd"
+% --- shock normalization ---
+iconf.shock_norm_mode = "structural";      % "structural" | "target_abs" | "target_1sd"
 iconf.min_norm_impact = 1e-6;              % safeguard when B(target,shock) is tiny
 iconf.target_var_conventional = 4;         % set below after indices are defined
 iconf.target_var_liquidity    = 6;         % default: normalize liquidity by M2 impact
@@ -58,4 +58,6 @@ iconf.seed = 1;
 iconf.dmax = mconf.dmax;
 
 end
+
+
 
