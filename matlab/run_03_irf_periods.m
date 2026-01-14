@@ -5,7 +5,7 @@ clear; clc;
 
 % 1. PERIOD
 % Options : "GreatInflation", "Volcker", "COVID"
-TARGET_PERIOD = "COVID"; 
+TARGET_PERIOD = "Volcker"; 
 
 N_SIMS = 500; 
 
