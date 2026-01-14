@@ -19,9 +19,9 @@ switch preset
 
     otherwise % "debug"
         % keep (K-burn)/thin = 1000 draws
-        mcmc.K    = 2000;
-        mcmc.burn = 500;
-        mcmc.thin = 1;
+        mcmc.K    = 12000;
+        mcmc.burn = 2000;
+        mcmc.thin = 5;
 end
 
 % --------------------
