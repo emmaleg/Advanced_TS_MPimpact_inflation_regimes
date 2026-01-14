@@ -19,11 +19,14 @@ addpath(genpath(fullfile(rootDir,'matlab')));
 paths = cf.config.paths_config(rootDir);
 mcmc  = cf.config.mcmc_config();
 mconf = cf.config.model_config();
-pconf = cf.config.priors_config();
 
 % --- Load dataset ---
 inFile = fullfile(paths.data_processed, 'dataset_canova_forero.mat');
 load(inFile,'ds','dconf');
+
+% data-driven mean inflation for P* prior (use the same inflation series as the model)
+pi_bar = mean(ds.Z(:, mconf.inflation_index_in_Z), 'omitnan');
+pconf  = cf.config.priors_config(pi_bar);
 
 fprintf('[run_02_gibbs] Dataset loaded: T=%d, n=%d\n', size(ds.Z,1), size(ds.Z,2));
 

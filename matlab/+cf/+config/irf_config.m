@@ -1,32 +1,39 @@
 function iconf = irf_config(mconf)
 %CF.CONFIG.IRF_CONFIG  Settings for IRF computation (Appendix B).
+% Paper: H=36, S=1000, L=200, delta=1.
 
 iconf = struct();
 
-iconf.remise = false; % for the draws 
+% Sample with replacement from posterior draws (recommended)
+iconf.remise = true;
 
-% Horizons / simulation counts (paper: H=36, S=1000, L=200)
-iconf.H     = 36;
-iconf.S     = 1000;   % number of IRF draws (outer loop)
-iconf.L     = 200;    % Monte Carlo reps per draw to approximate expectations
+% Horizons / simulation counts (paper)
+iconf.H = 36;      % months
+iconf.S = 1000;    % number of posterior draws used for IRFs
+iconf.L = 200;     % Monte Carlo reps per draw
 
-% Shock magnitude parameter:
-% - if shock_norm_mode == "structural"   : e_j = +/- delta
-% - if shock_norm_mode == "target_abs"   : impact(target) = +/- delta
-% - if shock_norm_mode == "target_1sd"   : impact(target) = +/- delta * sd(innovation(target))
-% Paper conventional shock is "one standard deviation surprise increase in the short-term rate".
+% Shock magnitude parameter (Appendix B): delta=1
 iconf.delta = 1;
 
-% --- NEW: shock normalization (recommended to match paper magnitudes) ---
-iconf.shock_norm_mode = "target_1sd";      % "structural" | "target_abs" | "target_1sd"
-iconf.min_norm_impact = 1e-6;              % safeguard when B(target,shock) is tiny
-iconf.target_var_conventional = 4;         % set below after indices are defined
-iconf.target_var_liquidity    = 6;         % default: normalize liquidity by M2 impact
+% -------------------------------------------------------------------------
+% Shock normalization
+% Paper algorithm sets structural innovation e_1^δ = δ and e_1^0 = 0.
+% Start with "structural" to match Appendix B exactly.
+%
+% Options in your codebase (if implemented):
+%   "structural"  : set e_j = +/- delta in the structural shock itself
+%   "target_abs"  : rescale so impact(target_var) = +/- delta
+%   "target_1sd"  : rescale so impact(target_var) = +/- delta * sd(innovation(target))
+% -------------------------------------------------------------------------
+iconf.shock_norm_mode = "structural";
+iconf.min_norm_impact = 1e-6;     % safeguard if you switch to target_* modes
+iconf.target_var_conventional = 4;
+iconf.target_var_liquidity    = 6;
 
-% Liquidity shock: keep short-term rate fixed for Hlock months (paper: 24; appendix H uses 12)
-iconf.ffr_lock_h = 24;
+% Liquidity shock: keep short-term rate fixed for Hlock months (paper: 24)
+iconf.ffr_lock_h = 24;  % Appendix H sometimes uses 12; main benchmark is 24
 
-% Variable indices (paper order)
+% Variable indices (paper ordering)
 iconf.idx_ip    = 1;
 iconf.idx_inf   = 2;
 iconf.idx_u     = 3;
@@ -36,26 +43,28 @@ iconf.idx_m2    = 6;
 iconf.idx_pcom  = 7;
 iconf.idx_sp500 = 8;
 
-% Now that indices exist, set targets cleanly:
-iconf.target_var_conventional = iconf.idx_ffr;  % paper normalization
-iconf.target_var_liquidity    = iconf.idx_m2;   % reasonable default; change if desired
+% Targets (only used if you select target_* modes)
+iconf.target_var_conventional = iconf.idx_ffr;
+iconf.target_var_liquidity    = iconf.idx_m2;
 
-% Shock indices (Appendix A matrix A, columns 4 and 6 are the policy shocks)
+% Shock indices (as in your identification: columns 4 and 6)
 iconf.shock_conventional = 4;
 iconf.shock_liquidity    = 6;
 
-% Control shock used to enforce FFR lock (use conventional shock #4)
+% Control shock used to enforce FFR lock (the code uses this to offset FFR)
 iconf.shock_ffr_control  = 4;
 
 % Model lags
-iconf.p = mconf.p;      % paper: p=3
-iconf.J = mconf.J;      % paper: J=2
+iconf.p = mconf.p;
+iconf.J = mconf.J;
+
+% Needed for safe sampling of t* (since regime uses inflation_{t-d})
+iconf.dmax = mconf.dmax;
 
 % RNG
 iconf.seed = 1;
 
-% For safe sampling of t* (need p lags, J lags of lambda, and d up to 6)
-iconf.dmax = mconf.dmax;
-
 end
+
+
 

@@ -1,20 +1,30 @@
 function st = draw_mu_normal(st, pconf)
-% Draw mu in h_t - mu = F(h_{t-1}-mu)+eta_t, eta~N(0,Q).
+% mu | h, F, Q is Normal (with stationary initial density)
 
-h = st.h;
-F = st.F;
-Q = st.Q;
+h  = st.h(:);
+T  = numel(h);
+F  = min(max(st.F, 0.001), 0.9999);
+Q  = max(st.Q, 1e-10);
 
-% Regression: (h_t - F h_{t-1}) = (1-F)*mu + eta_t
-y = h(2:end) - F*h(1:end-1);
-X = (1-F)*ones(numel(y),1);
-
-% Prior mu ~ N(mu0, V0)
-V0 = pconf.lambda.V0;
 mu0 = pconf.lambda.mu0;
+V0  = pconf.lambda.V0;
 
-Vpost = 1 / ( (X'*X)/Q + 1/V0 );
-mpost = Vpost * ( (X'*y)/Q + mu0/V0 );
+% Using:
+% h1 ~ N(mu, Q/(1-F^2))
+% ht = mu + F(h_{t-1}-mu) + eta  => (ht - F h_{t-1}) = (1-F) mu + eta
 
-st.mu = mpost + sqrt(Vpost)*randn();
+y  = h(2:end) - F*h(1:end-1);
+s1 = (1 - F^2) / Q;
+s2 = (1 - F)^2 * (T-1) / Q;
+
+prec = (1/V0) + s1 + s2;
+
+rhs = (mu0/V0) + s1*h(1) + ((1 - F)/Q)*sum(y);
+
+Vpost = 1/prec;
+mpost = Vpost * rhs;
+
+st.mu = mpost + sqrt(max(Vpost,1e-12))*randn();
+
 end
+

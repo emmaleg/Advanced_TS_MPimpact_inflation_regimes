@@ -95,7 +95,21 @@ while kept < Sgoal && tries < maxTries
 
     D = cf.irf.get_draw(post, kdraw, T, n, iconf, mconf);
 
-    % 1) stability filter
+    % 0) identification filter (apply impact restrictions in BOTH regimes)
+    if isfield(mconf,'id') && isfield(mconf.id,'enforce_sign_zero') && mconf.id.enforce_sign_zero
+        tol = mconf.id.zero_tol;
+        lam = exp(mean(D.h_path));         % scalar >0
+
+        % check_impact_restrictions expects sigma2, so pass D.sigma.^2
+        okA1 = cf.id.check_impact_restrictions(D.A1, (D.sigma.^2), lam, tol);
+        okA2 = cf.id.check_impact_restrictions(D.A2, (D.sigma.^2), lam, tol);
+
+        if ~(okA1 && okA2)
+            continue
+        end
+    end
+
+    % 1) stability filter (VAR part only)
     [st1, ~] = cf.irf.is_stable_var(D.Phi1, n, p);
     [st2, ~] = cf.irf.is_stable_var(D.Phi2, n, p);
     if ~(st1 && st2)
