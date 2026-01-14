@@ -1,37 +1,54 @@
-function mcmc = mcmc_config()
-% MCMC settings (paper: K=100,000; burn 50,000; thin 10).
-% Here: "debug-stable" preset: fast but enough kept draws for stable IRFs.
+function mcmc = mcmc_config(preset)
+%CF.CONFIG.MCMC_CONFIG  MCMC settings.
+% Paper: K=100000, burn=50000, thin=10.
+% Default preset here is "debug" (fast) but still posterior-stable enough
+% for IRFs once the code is correct.
 
-% --- Main iterations ---
-% keep (K-burn)/thin = 700 draws
-mcmc.K    = 5000;   % 100000
-mcmc.burn = 1500;   % 50000
-mcmc.thin = 5;      % 10
+if nargin < 1 || isempty(preset)
+    preset = "debug";  % "debug" | "paper"
+end
+preset = lower(string(preset));
 
-% --- Storage ---
-mcmc.store_full_draws   = true;
-mcmc.store_lambda_path  = true; % IMPORTANT: keep false in debug (huge memory)
+mcmc = struct();
 
-% --- MH tuning ---
-mcmc.Pstar_init = 0.05;
-mcmc.Pstar_prop_sd0 = 0.0005;
-mcmc.Pstar_adapt_start = 50;           % 200 % avoid early instability)
+switch preset
+    case "paper"
+        mcmc.K    = 100000;
+        mcmc.burn = 50000;
+        mcmc.thin = 10;
+
+    otherwise % "debug"
+        % keep (K-burn)/thin = 1000 draws
+        mcmc.K    = 2000;
+        mcmc.burn = 500;
+        mcmc.thin = 1;
+end
+
+% --------------------
+% Storage
+% --------------------
+mcmc.store_full_draws  = true;
+mcmc.store_lambda_path = true;   % needed for Appendix-B IRF algorithm (lambda_t path)
+
+% --------------------
+% Metropolis / tuning
+% --------------------
+% P* RW-MH
+mcmc.Pstar_init        = 0.05;
+mcmc.Pstar_prop_sd0    = 5e-4;
+mcmc.Pstar_adapt_start = 200;           % start adapting after burn-in-ish
 mcmc.Pstar_target_accept = [0.2 0.4];
 
-% alpha MH: proposal covariance is V_alpha; scale controls acceptance rate
-mcmc.alpha_prop_scale = 0.8;            % target ~0.2–0.4
+% alpha RW-MH: proposal covariance computed in draw_alpha_mh; this scales it.
+mcmc.alpha_prop_scale = 0.3;            % typical target acceptance ~ 0.2–0.4
 
-% lambda/h MH (used in the improved single-move below)
-mcmc.lambda_prop_scale = 1.0;           % multiplies the Laplace variance
+% h_t single-move: multiplier for conditional-prior proposal variance (if used)
+mcmc.lambda_prop_scale = 1.0;
 
-% before : 
-% mcmc.alpha_prop_scale = 1.0;     % scales proposal covariance in alpha MH
-% mcmc.lambda_prop_sd = 0.15;      % for fallback RW; main proposal uses conditional prior
-
-% Quick plots
+% --------------------
+% Utilities
+% --------------------
 mcmc.make_quick_plots = true;
-
-% Seed
 mcmc.seed = 123;
 
 end

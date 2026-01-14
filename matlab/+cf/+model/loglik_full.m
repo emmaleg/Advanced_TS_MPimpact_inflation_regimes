@@ -1,46 +1,33 @@
-function ll = loglik_full(Z, h, S, Phi1, Phi2, A1, A2, sigma2, p, J, Svalid)
-% Full log-likelihood over usable t after building regressors.
-%
-% KEY: if Svalid is provided, periods where Svalid(t)=false are excluded
-% from the likelihood (regime undefined for t<=d).
+function ll = loglik_full(Z, S, Svalid, st, mconf)
+% Full log-likelihood sum_t log p(Z_t | X_t, regime, params)
+% skipping invalid periods (t<=d) and rows with NaNs.
 
-if nargin < 11 || isempty(Svalid)
-    Svalid = true(size(S));
-end
-
-[YY, XX] = cf.model.build_regressors(Z, h, p, J); 
-
-% Rebuild Xfull to map back to original t indices (same logic as your file)
 [T,~] = size(Z);
-Xlag = cf.model.make_lag_matrix(Z,p);
-Hlags = NaN(T,J+1);
-for j=0:J
-    Hlags(:,j+1) = lagmatrix(h,j);
+
+% build Xfull = [1, lags(Z), lags(h)]
+Xlag = cf.model.make_lag_matrix(Z, mconf.p);
+
+Hlags = NaN(T, mconf.J+1);
+for j=0:mconf.J
+    Hlags(:,j+1) = lagmatrix(st.h, j);
 end
 Xfull = [ones(T,1), Xlag, Hlags];
 
-start = p+1;
-Y0 = Z(start:end,:);
-X0 = Xfull(start:end,:);
-good = all(isfinite(X0),2) & all(isfinite(Y0),2);
-
-idx = (start:T)';
-idx = idx(good);
-
-% KEY FIX: drop times where regime is undefined
-idx = idx(Svalid(idx));
-
+start = mconf.p + 1;
 ll = 0;
-for ii=1:numel(idx)
-    t = idx(ii);
 
-    z_t = Z(t,:)';
-    x_t = Xfull(t,:)';
+for t = start:T
+    if ~Svalid(t), continue; end
+    if any(~isfinite(Z(t,:))) || any(~isfinite(Xfull(t,:))), continue; end
+
+    z = Z(t,:)';
+    x = Xfull(t,:)';
 
     if S(t)==1
-        ll = ll + cf.model.loglik_obs(z_t, x_t, Phi1, A1, sigma2, h(t));
+        ll = ll + cf.model.loglik_obs(z, x, st.Phi1, st.A1, st.sigma2, st.h(t));
     else
-        ll = ll + cf.model.loglik_obs(z_t, x_t, Phi2, A2, sigma2, h(t));
+        ll = ll + cf.model.loglik_obs(z, x, st.Phi2, st.A2, st.sigma2, st.h(t));
     end
 end
+
 end

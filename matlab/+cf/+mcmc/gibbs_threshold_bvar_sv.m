@@ -1,6 +1,6 @@
 function res = gibbs_threshold_bvar_sv(ds, mconf, pconf, mcmc)
 % Gibbs sampler for Threshold-BVAR with scalar lambda_t SV.
-% Blocks follow Appendix A structure. 
+% Blocks follow Appendix A structure.
 
 rng(mcmc.seed);
 
@@ -31,45 +31,41 @@ if mcmc.store_full_draws
 end
 
 S_sum = zeros(T,1);
-
 keep_idx = 0;
 
+Pi = Z(:, mconf.inflation_index_in_Z);
+
 for k=1:mcmc.K
-    % --- Update regime indicator from current (P*,d)
-    Pi = Z(:, mconf.inflation_index_in_Z);
-    st.S = cf.model.regime_indicator(Pi, st.Pstar, st.d);
+    % --- Update regime indicator from current (P*,d) (KEEP Svalid!)
+    [st.S, st.Svalid] = cf.model.regime_indicator(Pi, st.Pstar, st.d);
 
-    % 1) P* | rest   (MH RW with adaptation) 
+    % 1) P* | rest
     st = cf.mcmc.draw_Pstar_mh(st, Z, mconf, pconf, mcmc, k);
+    [st.S, st.Svalid] = cf.model.regime_indicator(Pi, st.Pstar, st.d);
 
-    % Update S after P* move
-    st.S = cf.model.regime_indicator(Pi, st.Pstar, st.d);
-
-    % 2) d | rest    (multinomial over 1..dmax) 
+    % 2) d | rest
     st = cf.mcmc.draw_d_multinomial(st, Z, mconf, pconf);
+    % draw_d_multinomial already updates st.S and st.Svalid
 
-    % Update S after d move
-    st.S = cf.model.regime_indicator(Pi, st.Pstar, st.d);
-
-    % 3) Phi_i | rest (SUR / truncated for stationarity)
+    % 3) Phi_i | rest
     st = cf.mcmc.draw_phi_sur(st, Z, mconf, pconf);
 
-    % 4) alpha_i | rest (MH) using A.8 parameterization 
+    % 4) alpha_i | rest
     st = cf.mcmc.draw_alpha_mh(st, Z, mconf, pconf, mcmc);
 
-    % 5) sigma2 | rest (IG) 
+    % 5) sigma2 | rest
     st = cf.mcmc.draw_sigma2_ig(st, Z, mconf, pconf);
 
-    % 6) h(=ln lambda) | rest (single-move updates) 
+    % 6) h | rest
     st = cf.mcmc.draw_lambda_single_move(st, Z, mconf, pconf, mcmc);
 
-    % 7) mu | rest (normal) 
+    % 7) mu | rest
     st = cf.mcmc.draw_mu_normal(st, pconf);
 
-    % 8) F | rest (trunc normal 0<F<1)
+    % 8) F | rest
     st = cf.mcmc.draw_F_truncnorm(st, pconf);
 
-    % 9) Q | rest (IG)
+    % 9) Q | rest
     st = cf.mcmc.draw_Q_ig(st, pconf);
 
     % Store
@@ -102,8 +98,8 @@ for k=1:mcmc.K
 end
 
 res = struct();
-res.draws = draws;
-res.S_mean = S_sum / nkeep; % posterior mean of low-regime indicator (used for Fig.3 logic)
+res.draws  = draws;
+res.S_mean = S_sum / nkeep;
 res.accept = st.accept;
 
 end

@@ -1,95 +1,120 @@
 function st = draw_lambda_single_move(st, Z, mconf, pconf, mcmc)
-% Single-move MH updates for h_t = ln lambda_t.
-% Appendix A discusses single-move due to nonlinearity (lambda enters mean and variance).
+% Block update for h_t = log(lambda_t) using a Gaussian approximation
+% to log-chi2 and FFBS (Kalman simulation smoother).
 %
-% Here: independence proposal from conditional AR(1) prior (A.16-A.18), accept by local likelihood ratio.
-% We recompute a LOCAL likelihood window [t, t+J] because h_t enters mean with lags up to J.
+% Key idea:
+%   s_t = sum_j (u_{j,t}^2 / sigma2_j)  ~  lambda_t * chi2(n)
+% => log(s_t) = h_t + log(chi2(n))  approximately Gaussian for n>=5.
 
-[T0,~] = size(Z);
+[T,n] = size(Z);
 
-% Precompute regressors container
-Xlag = cf.model.make_lag_matrix(Z,mconf.p);
-Hlags = NaN(T0,mconf.J+1);
-for j=0:mconf.J, Hlags(:,j+1)=lagmatrix(st.h,j); end
-Xfull = [ones(T0,1), Xlag, Hlags];
+% Build Xfull from current h (we treat it as fixed in this block; standard Gibbs approx)
+Xlag = cf.model.make_lag_matrix(Z, mconf.p);
+Hlags = NaN(T, mconf.J+1);
+for j=0:mconf.J
+    Hlags(:,j+1) = lagmatrix(st.h, j);
+end
+Xfull = [ones(T,1), Xlag, Hlags];
 
-start = mconf.p+1;
+start = mconf.p + 1;
 
-for t=start:T0
-    % Proposal from conditional prior
-    [mprior, vprior] = cond_ar1_prior(t, st.h, st.mu, st.F, st.Q);
-    h_can = mprior + sqrt(vprior)*randn();
+% Moments of log(chi2_n)
+m_v = psi(n/2) + log(2);     % E[log chi2_n]
+v_v = psi(1, n/2);           % Var[log chi2_n] (trigamma)
+R   = max(v_v, 1e-8);        % measurement variance
 
-    % local indices affected by h_t through mean: tau in [t, t+J]
-    tau1 = t;
-    tau2 = min(T0, t+mconf.J);
+% Construct pseudo-observation y_t ≈ h_t + e_t
+y = NaN(T,1);
 
-    ll_cur = local_ll(Z, Xfull, st, tau1, tau2, st.h(t));
-    h_old = st.h(t);
-    st.h(t) = h_can;
-    % update Hlags for impacted rows (cheap update)
-    for j=0:mconf.J
-        if (t+j) <= T0
-            col = 2 + size(Xlag,2) + j; 
-            Xfull(t+j, col) = st.h(t);
-        end
-    end
-    % update Hlags for impacted rows (cheap update)
-    %for j=0:mconf.J
-    %    if (t+j) <= T0
-    %        Xfull(t+j, 2 + size(Xlag,2) + (j+1) ) = st.h(t); % column for h_{tau-j} at tau=t+j, j=(tau-t)
-    %    end
-    %end
-    ll_can = local_ll(Z, Xfull, st, tau1, tau2, h_can);
+for t = start:T
+    if isfield(st,'Svalid') && ~isempty(st.Svalid) && ~st.Svalid(t), continue; end
+    if any(~isfinite(Z(t,:))) || any(~isfinite(Xfull(t,:))), continue; end
 
-    % acceptance (proposal symmetric in conditional-prior space? It's independence but same both sides if using same prior)
-    st.accept.h_trials = st.accept.h_trials + 1;
-    acc = min(1, exp(ll_can - ll_cur));
-    if rand() < acc
-        st.accept.h = st.accept.h + 1;
+    x = Xfull(t,:)';
+    z = Z(t,:)';
+
+    if st.S(t)==1
+        eps = z - (st.Phi1 * x);
+        u   = st.A1 * eps;
     else
-        st.h(t) = h_old;
-        % restore Xfull impacted rows
-        for j=0:mconf.J
-            if (t+j) <= T0
-                col = 2 + size(Xlag,2) + j;   % <-- CORRECT
-                Xfull(t+j, col) = h_old;
-            end
-        end
+        eps = z - (st.Phi2 * x);
+        u   = st.A2 * eps;
     end
-end
+
+    s = sum( (u.^2) ./ st.sigma2(:) );
+    s = max(s, 1e-12);
+
+    y(t) = log(s) - m_v;
 end
 
-function [m,v] = cond_ar1_prior(t, h, mu, F, Q)
-% Conditional prior for interior points (A.17-A.18). Endpoints handled simply.
-T = numel(h);
-if t==1
-    m = mu + F*(h(2)-mu); v = Q; return;
-elseif t==T
-    m = mu + F*(h(T-1)-mu); v = Q; return;
+% State equation: h_t = c + F*h_{t-1} + eta_t
+F  = min(max(st.F, 0.001), 0.9999);
+Q  = max(st.Q, 1e-10);
+mu = st.mu;
+c  = (1 - F) * mu;
+
+% Stationary initial distribution
+a1 = mu;
+P1 = Q / max(1 - F^2, 1e-8);
+
+% Kalman filter
+a_pred = zeros(T,1); P_pred = zeros(T,1);
+a_filt = zeros(T,1); P_filt = zeros(T,1);
+
+a_pred(1) = a1; P_pred(1) = P1;
+
+if isfinite(y(1))
+    v  = y(1) - a_pred(1);
+    S  = P_pred(1) + R;
+    K  = P_pred(1) / S;
+    a_filt(1) = a_pred(1) + K*v;
+    P_filt(1) = (1 - K)*P_pred(1);
 else
-    m = mu + (F*((h(t-1)-mu) + (h(t+1)-mu))) / (1+F^2);
-    v = Q / (1+F^2);
+    a_filt(1) = a_pred(1);
+    P_filt(1) = P_pred(1);
 end
-end
 
+for t = 2:T
+    a_pred(t) = c + F*a_filt(t-1);
+    P_pred(t) = F^2 * P_filt(t-1) + Q;
 
-function ll = local_ll(Z, Xfull, st, t1, t2, h_t)
-% Compute log-likelihood contributions for tau=t1..t2 (only if regressors finite and tau>=p+1)
-ll = 0;
-for tau=t1:t2
-    if any(~isfinite(Xfull(tau,:))) || any(~isfinite(Z(tau,:)))
-        continue;
-    end
-
-    z = Z(tau,:)';
-    x = Xfull(tau,:)';
-
-    if st.S(tau)==1
-        ll = ll + cf.model.loglik_obs(z, x, st.Phi1, st.A1, st.sigma2, st.h(tau));
+    if isfinite(y(t))
+        v  = y(t) - a_pred(t);
+        S  = P_pred(t) + R;
+        K  = P_pred(t) / S;
+        a_filt(t) = a_pred(t) + K*v;
+        P_filt(t) = (1 - K)*P_pred(t);
     else
-        ll = ll + cf.model.loglik_obs(z, x, st.Phi2, st.A2, st.sigma2, st.h(tau));
+        a_filt(t) = a_pred(t);
+        P_filt(t) = P_pred(t);
     end
 end
+
+% Backward simulation (Carter-Kohn)
+h_draw = zeros(T,1);
+h_draw(T) = a_filt(T) + sqrt(max(P_filt(T),1e-12))*randn();
+
+for t = T-1:-1:1
+    denom = max(P_pred(t+1), 1e-12);
+    Jt    = P_filt(t) * F / denom;
+
+    m = a_filt(t) + Jt*(h_draw(t+1) - a_pred(t+1));
+    V = P_filt(t) - (Jt^2)*P_pred(t+1);
+    V = max(V, 1e-12);
+
+    h_draw(t) = m + sqrt(V)*randn();
+end
+
+st.h = h_draw;
+
+% For book-keeping : counting the nbr of updates
+if ~isfield(st,'accept') || isempty(st.accept)
+    st.accept = struct();
+end
+if ~isfield(st.accept,'h_updates')
+    st.accept.h_updates = 0;
+end
+st.accept.h_updates = st.accept.h_updates + 1;
+
 end
 

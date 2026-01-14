@@ -1,26 +1,37 @@
 function mconf = model_config()
-% Model config for eq. (1)-(6): threshold VAR with volatility-in-mean and SV. 
+%CF.CONFIG.MODEL_CONFIG  Model config for the Threshold-BVAR-SV.
+% Paper (v7): p = 3, J = 2, dmax = 6, dim(Z)=8.
 
+mconf = struct();
+
+% Dimensionality
 mconf.n = 8;
 
-% --- Not explicitly stated in the BCRP PDF: choose defaults ---
-% p: monthly VAR lag length. (Common choice: 12)
+% VAR lags (paper: p=3)
 mconf.p = 3;
 
-% J: lags of ln(lambda) in mean (includes j=0). Keep small.
+% Lags of log(lambda_t) in the mean (paper: J=2, includes j=0,...,J)
 mconf.J = 2;
 
-% Threshold regime indicator: S_t = 1 <=> Pi_{t-d} <= P*  (low inflation regime) 
-mconf.inflation_index_in_Z = 2; % P is 2nd variable in Z
-mconf.dmax = 6;                % paper sets dmax=6 
+% Threshold regime indicator:
+%   S_t = 1  <=>  Pi_{t-d} <= P*   (low inflation regime)
+mconf.inflation_index_in_Z = 2;  % inflation is the 2nd variable in Z
+mconf.dmax = 6;                  % paper: dmax = 6
 
-% Identification / restrictions
-mconf.id.n_alpha = 22; % implied by A.8 
-mconf.id.enforce_sign_zero = true; % you can switch on later
-mconf.id.zero_tol = 1e-3;          % final : 1e-10 // for debug 1e-4 ou 1e-6 // numerical tolerance for "zero" checks
+% ------------------------------------------------------------
+% Identification / impact restrictions (Table 1)
+% ------------------------------------------------------------
+mconf.id = struct();
+mconf.id.n_alpha = 22;                 % from Appendix A.8
+mconf.id.enforce_sign_zero = true;     % enforce Table-1 constraints DURING sampling
+mconf.id.zero_tol = 1e-3;              % relative tolerance for "zero" (robust)
 
-% Stationarity truncation for Phi draws (Appendix A mentions truncation I(phi)) 
+% ------------------------------------------------------------
+% Stationarity truncation for Phi draws (Appendix A)
+% ------------------------------------------------------------
 mconf.enforce_stationarity = true;
 mconf.stationarity_max_tries = 200;
 
 end
+
+

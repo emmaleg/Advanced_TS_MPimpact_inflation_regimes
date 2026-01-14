@@ -1,17 +1,31 @@
 function st = draw_F_truncnorm(st, pconf)
-% Draw F from truncated normal on (0,1). 
+% F | h, mu, Q is Normal truncated to (0,1)
 
-h = st.h;
+h  = st.h(:);
 mu = st.mu;
-Q  = st.Q;
+Q  = max(st.Q, 1e-10);
 
-x = (h(1:end-1) - mu);
-y = (h(2:end)   - mu);
+x = h(1:end-1) - mu;
+y = h(2:end)   - mu;
 
-% Likelihood: y = F x + eta
-V = 1 / ( (x'*x)/Q + 1/pconf.lambda.VF0 );
-m = V * ( (x'*y)/Q + pconf.lambda.F0/pconf.lambda.VF0 );
+F0  = pconf.lambda.F0;
+VF0 = pconf.lambda.VF0;
 
-Fdraw = cf.mcmc.rand_truncnorm(m, sqrt(V), 0.0001, 0.9999);
-st.F = Fdraw;
+prec = (1/VF0) + (sum(x.^2)/Q);
+Vpost = 1/prec;
+mpost = Vpost * (F0/VF0 + sum(x.*y)/Q);
+
+% Truncated normal by rejection (works because posterior tight)
+for k=1:5000
+    Fcan = mpost + sqrt(max(Vpost,1e-12))*randn();
+    if Fcan > 0 && Fcan < 1
+        st.F = Fcan;
+        return;
+    end
 end
+
+% fallback: clamp (rare)
+st.F = min(max(mpost, 1e-3), 0.999);
+
+end
+

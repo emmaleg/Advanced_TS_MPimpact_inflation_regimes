@@ -1,24 +1,15 @@
-function ll = loglik_obs(z_t, x_t, Phi, A, sigma2, h_t)
-% log p(z_t | ...) under:
-% eps_t = z_t - Phi * x_t
-% Omega_t = A^{-1} * (lambda_t * Sigma) * A^{-1}'
-% with Sigma = diag(sigma2), lambda_t = exp(h_t).
-n = numel(z_t);
-Sigma = diag(sigma2(:));
-lambda = exp(h_t);
+function ll = loglik_obs(z, x, Phi, A, sigma2, h_t)
+% One-observation log-likelihood under:
+% eps_t = z - Phi x
+% u_t   = A * eps_t
+% u_t ~ N(0, lambda_t * diag(sigma2)), lambda_t = exp(h_t)
 
-eps = z_t - (Phi * x_t);
+eps = z - (Phi * x);
+u   = A * eps;
 
-% Use transformation u = A * eps, u ~ N(0, lambda*Sigma)
-u = A * eps;
+lam = exp(h_t);
+v   = lam * sigma2(:);  % variances
 
-% logdet(H) = n*log(lambda) + logdet(Sigma)
-logdetH = n*log(lambda) + sum(log(sigma2));
-
-% Jacobian term log|A|
-logdetA = log(abs(det(A)));
-
-quad = (u' * ( (1/lambda) * (Sigma \ u) ));
-
-ll = logdetA - 0.5*logdetH - 0.5*quad - 0.5*n*log(2*pi);
+% log N(0, diag(v))
+ll = -0.5 * ( numel(u)*log(2*pi) + sum(log(v)) + sum((u.^2) ./ v) );
 end

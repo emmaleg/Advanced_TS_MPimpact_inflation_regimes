@@ -1,7 +1,5 @@
 function st = draw_alpha_mh(st, Z, mconf, pconf, mcmc)
-% Draw alpha_i (i=1,2) via MH, following Appendix A (eq. A.9-A.12).
-% Proposal: Random-walk N(alpha_cur, c * V_alpha), with V_alpha from A.11.
-% Acceptance uses full posterior (likelihood includes log|A|).
+% Draw alpha_i (i=1,2) via MH.
 
 [T,n] = size(Z);
 na    = numel(pconf.alpha.mu);
@@ -13,14 +11,18 @@ Hlags = NaN(T, mconf.J+1);
 for j=0:mconf.J
     Hlags(:,j+1) = lagmatrix(st.h, j);
 end
-
 Xfull = [ones(T,1), Xlag, Hlags];
 
 start = mconf.p + 1;
 good  = all(isfinite(Xfull(start:end,:)),2) & all(isfinite(Z(start:end,:)),2);
 idx_all = (start:T)'; idx_all = idx_all(good);
 
-% --- SA,sA such that vec(A)=SA*alpha + sA (build from alpha_to_A) ---
+% IMPORTANT: exclude undefined-regime periods (t<=d)
+if isfield(st,'Svalid') && ~isempty(st.Svalid)
+    idx_all = idx_all(st.Svalid(idx_all));
+end
+
+% --- SA,sA such that vec(A)=SA*alpha + sA ---
 [SA, sA] = local_build_SA_sA(na);
 
 OmegaInv = inv(pconf.alpha.Omega);
@@ -39,7 +41,6 @@ st = one_regime_alpha_update(st, 2);
             Phi       = st2.Phi2;
         end
 
-        % indices in regime
         if reg==1
             use = (st2.S(idx_all)==1);
         else
@@ -48,15 +49,14 @@ st = one_regime_alpha_update(st, 2);
         id = idx_all(use);
 
         if numel(id) < 10
-            % too few obs -> skip (debug safeguard)
+            % too few obs -> skip
             return;
         end
 
-        % Build V_alpha (A.11): V = (Omega^{-1} + sum X' H^{-1} X)^{-1}
+        % Build V_alpha
         Vinv = OmegaInv;
-        bvec = OmegaInv * muA;
 
-        Sigma = diag(st2.sigma2(:)); % n x n
+        Sigma = diag(st2.sigma2(:));
 
         for ii=1:numel(id)
             t = id(ii);
@@ -68,28 +68,42 @@ st = one_regime_alpha_update(st, 2);
             x_tilde = -E * SA;                    % n x na
 
             lam  = exp(st2.h(t));
-            Hinv = diag(1./(lam * st2.sigma2(:))); % n x n (since H_t = lam*diag(sigma2))
+            Hinv = diag(1./(lam * st2.sigma2(:)));
 
             Vinv = Vinv + (x_tilde' * Hinv * x_tilde);
-            bvec = bvec + (x_tilde' * Hinv * e_tilde);
         end
 
         V = inv(symm(Vinv));
 
-        % RW proposal: alpha_can ~ N(alpha_cur, c*V)
+        % Current A
+        Acur = cf.id.alpha_to_A(alpha_cur);
+
+        % If identification is enforced, ensure current point is in support
+        if isfield(mconf,'id') && isfield(mconf.id,'enforce_sign_zero') && mconf.id.enforce_sign_zero
+            tol = mconf.id.zero_tol;
+            ok_cur = cf.id.check_impact_restrictions(Acur, st2.sigma2, exp(mean(st2.h)), tol);
+            if ~ok_cur
+                % repair by drawing a feasible alpha from the PRIOR
+                [alpha_cur, Acur] = draw_feasible_alpha(pconf, st2.sigma2, exp(mean(st2.h)), tol, na, 5000);
+                if reg==1
+                    st2.alpha1 = alpha_cur; st2.A1 = Acur;
+                else
+                    st2.alpha2 = alpha_cur; st2.A2 = Acur;
+                end
+            end
+        end
+
+        % RW proposal
         c = mcmc.alpha_prop_scale;
         L = chol_psd(symm(V));
         alpha_can = alpha_cur + sqrt(c) * (L * randn(na,1));
-
-        Acur = cf.id.alpha_to_A(alpha_cur);
         Acan = cf.id.alpha_to_A(alpha_can);
 
-        % Optional sign/zero restrictions
+        % Optional sign/zero restrictions on the candidate
         if isfield(mconf,'id') && isfield(mconf.id,'enforce_sign_zero') && mconf.id.enforce_sign_zero
             tol = mconf.id.zero_tol;
             ok1 = cf.id.check_impact_restrictions(Acan, st2.sigma2, exp(mean(st2.h)), tol);
             if ~ok1
-                % reject immediately
                 if reg==1
                     st2.accept.alpha1_trials = st2.accept.alpha1_trials + 1;
                 else
@@ -99,11 +113,9 @@ st = one_regime_alpha_update(st, 2);
             end
         end
 
-        % MH accept with full posterior
         lp_cur = logpost_alpha(alpha_cur, Acur, Phi, id, Z, Xfull, st2, pconf);
         lp_can = logpost_alpha(alpha_can, Acan, Phi, id, Z, Xfull, st2, pconf);
 
-        % RW with constant covariance -> symmetric -> q cancels
         acc = min(1, exp(lp_can - lp_cur));
 
         if reg==1
@@ -133,10 +145,8 @@ st = one_regime_alpha_update(st, 2);
 end
 
 function lp = logpost_alpha(alpha, A, Phi, id, Z, Xfull, st, pconf)
-% Log posterior up to constant: log prior + sum_t loglik(z_t | ...)
 da = alpha - pconf.alpha.mu;
 lp = -0.5 * (da' * (pconf.alpha.Omega \ da));
-
 for ii=1:numel(id)
     t = id(ii);
     z = Z(t,:)';
@@ -146,7 +156,6 @@ end
 end
 
 function [SA, sA] = local_build_SA_sA(na)
-% Build SA,sA numerically from cf.id.alpha_to_A, so you don't depend on a separate file.
 n = 8;
 z = zeros(na,1);
 A0 = cf.id.alpha_to_A(z);
@@ -166,7 +175,6 @@ M = (M + M')/2;
 end
 
 function L = chol_psd(V)
-% robust chol with jitter
 V = (V + V')/2;
 jitter = 1e-10;
 for it=1:8
@@ -174,7 +182,30 @@ for it=1:8
     if p==0, return; end
     jitter = jitter * 10;
 end
-% last resort
 L = chol(V + 1e-4*eye(size(V)), 'lower');
 end
 
+function [alpha, A] = draw_feasible_alpha(pconf, sigma2, lambda0, tol, na, maxTries)
+mu = pconf.alpha.mu(:);
+Om = (pconf.alpha.Omega + pconf.alpha.Omega')/2;
+
+jitter = 1e-12;
+for it=1:8
+    [L,p] = chol(Om + jitter*eye(size(Om)), 'lower');
+    if p==0, break; end
+    jitter = jitter*10;
+end
+if p~=0
+    L = chol(Om + 1e-6*eye(size(Om)), 'lower');
+end
+
+for k=1:maxTries
+    alpha = mu + L*randn(na,1);
+    A     = cf.id.alpha_to_A(alpha);
+    if cf.id.check_impact_restrictions(A, sigma2, lambda0, tol)
+        return;
+    end
+end
+
+error("draw_alpha_mh: cannot find feasible alpha after %d tries.", maxTries);
+end
