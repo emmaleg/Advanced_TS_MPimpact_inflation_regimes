@@ -13,7 +13,7 @@ dconf.names = {'IP_g_yoy','PCE_pi_yoy','UNRATE','FEDFUNDS','SLOPE_10Y_3M','M2_g_
 
 % FRED series IDs (choices for Pcom etc are explicit here)
 dconf.series.IP      = 'INDPRO';     % Industrial Production Index
-dconf.series.PCEPI   = 'PCEPI';      % PCE price index
+dconf.series.PCEPI   = 'CPIAUCSL';      % PCE price index
 dconf.series.UNRATE  = 'UNRATE';     % Unemployment rate
 dconf.series.FEDFUNDS= 'FEDFUNDS';   % Fed funds
 dconf.series.GS10    = 'GS10';       % 10y

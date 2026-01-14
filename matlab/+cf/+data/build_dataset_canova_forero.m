@@ -37,7 +37,7 @@ end
 
 % Build variables
 INDPRO = tt_all.INDPRO;
-PCEPI  = tt_all.PCEPI;
+PCEPI  = tt_all.CPIAUCSL;
 UNRATE = tt_all.UNRATE;
 FEDFUNDS = tt_all.FEDFUNDS;
 GS10 = tt_all.GS10;
