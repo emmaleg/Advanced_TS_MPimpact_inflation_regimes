@@ -40,10 +40,12 @@ mcmc.Pstar_adapt_start = 200;           % start adapting after burn-in-ish
 mcmc.Pstar_target_accept = [0.2 0.4];
 
 % alpha RW-MH: proposal covariance computed in draw_alpha_mh; this scales it.
-mcmc.alpha_prop_scale = 0.3;            % typical target acceptance ~ 0.2–0.4
+mcmc.alpha_prop_scale = 0.2;            % typical target acceptance ~ 0.2–0.4
 
 % h_t single-move: multiplier for conditional-prior proposal variance (if used)
 mcmc.lambda_prop_scale = 1.0;
+% h_t single-move (Jacquier-style accept/reject): cap the number of proposals per time index.
+mcmc.lambda_max_tries = 50;
 
 % --------------------
 % Utilities

@@ -1,120 +1,167 @@
 function st = draw_lambda_single_move(st, Z, mconf, pconf, mcmc)
-% Block update for h_t = log(lambda_t) using a Gaussian approximation
-% to log-chi2 and FFBS (Kalman simulation smoother).
+%CF.MCMC.DRAW_LAMBDA_SINGLE_MOVE  Draw h_t = log(lambda_t) via Jacquier et al. (1994) single-move.
 %
-% Key idea:
-%   s_t = sum_j (u_{j,t}^2 / sigma2_j)  ~  lambda_t * chi2(n)
-% => log(s_t) = h_t + log(chi2(n))  approximately Gaussian for n>=5.
+% This implements Appendix A, Block 6 of Canova & Perez Forero (2024)
+% (eqs. (A.15)–(A.24)) using the convexity bound for exp(-h_t).  
+%
+% Notation in the code:
+%   - h_t is st.h(t) = log(lambda_t)
+%   - AR(1) prior: h_t - mu = F (h_{t-1}-mu) + eta_t, eta_t ~ N(0,Q)   
+%   - For each t, compute conditional prior moments (h*_t, v2) as in (A.17)-(A.18)
+%   - Let ss_t = sum_j u_{j,t}^2 / sigma_j^2, where u_t are the structural residuals.
+%     In a multivariate system with common scale lambda_t, the log-likelihood contribution is:
+%         ln f(u_t|h_t) = const - (n/2) h_t - (1/2) ss_t * exp(-h_t)
+%     The bound and the accept/reject step generalize directly.
+%
+% IMPORTANT (consistency with the Appendix derivation):
+%   The bound (A.20) assumes ss_t is treated as fixed data when drawing h_t.  
+%   We therefore compute ss_t once at the beginning of the block from the current state and
+%   keep it fixed while updating the whole path h_1..h_T.
 
-[T,n] = size(Z);
+if ~isfield(mcmc, 'lambda_max_tries'); mcmc.lambda_max_tries = 50; end
 
-% Build Xfull from current h (we treat it as fixed in this block; standard Gibbs approx)
+[T, n] = size(Z);
+
+% -------------------------------------------------------------------------
+% Precompute ss_t = sum_j u_{j,t}^2 / sigma_j^2 using the current state.
+% Residual definition follows Appendix A.14 (u_{j,t} = A1 e~_{1,t} S_t + A2 e~_{2,t} (1-S_t)).
+% -------------------------------------------------------------------------
+ss = compute_ss_path(st, Z, mconf); % T x 1, NaN where undefined
+
+mu = st.mu;
+F  = st.F;
+Q  = st.Q;
+
+% Update each h_t sequentially (single-move).
+for t = 1:T
+    % Conditional prior for h_t given neighbors under AR(1)
+    [h_star, v2] = cond_prior_h(t, st.h, mu, F, Q);
+
+    % If ss_t is missing (early periods / missing regressors), draw from the conditional prior.
+    if ~isfinite(ss(t))
+        st.h(t) = h_star + sqrt(max(v2, 1e-12))*randn();
+        continue
+    end
+
+    % Proposal mean mu_t in (A.23) generalized to multivariate common-scale case:
+    %   mu_t = h*_t + (v2/2) * ( ss_t * exp(-h*_t) - n )
+    % (equivalently, n * (ybar_t^2 exp(-h*_t) - 1) if ybar^2 = ss/n).   
+    mu_t = h_star + 0.5*v2*(ss(t)*exp(-h_star) - n);
+
+    % Accept/Reject using envelope implied by (A.20)-(A.24).            
+    accepted = false;
+    tries = 0;
+    while ~accepted
+        tries = tries + 1;
+        st.accept.h_trials = st.accept.h_trials + 1;
+
+        h_can = mu_t + sqrt(max(v2, 1e-12))*randn();
+
+        % log f*(.) and log g*(.) (multivariate generalization)
+        %   ln f* = -(n/2) h - 0.5 ss exp(-h)
+        %   ln g* = -(n/2) h - 0.5 ss exp(-h*) (1 + h* - h)
+        ln_f = -0.5*n*h_can - 0.5*ss(t)*exp(-h_can);
+        ln_g = -0.5*n*h_can - 0.5*ss(t)*exp(-h_star)*(1 + h_star - h_can);
+
+        log_alpha = ln_f - ln_g; % <= 0 by convexity
+        if log(rand()) < min(0, log_alpha)
+            st.h(t) = h_can;
+            st.accept.h = st.accept.h + 1;
+            accepted = true;
+        else
+            % True rejection sampling would keep drawing until accepted.
+            % To avoid pathological infinite loops in rare numerical cases, cap the tries.
+            if tries >= mcmc.lambda_max_tries
+                % Fallback: keep the previous value (MH-style). This should almost never trigger.
+                accepted = true;
+            end
+        end
+    end
+end
+
+st.accept.h_updates = st.accept.h_updates + 1;
+
+end
+
+% =========================================================================
+% Helpers
+% =========================================================================
+
+function ss = compute_ss_path(st, Z, mconf)
+% Compute ss_t = sum_j u_{j,t}^2 / sigma_j^2 for t=1..T using the current state.
+
+[T, n] = size(Z);
+ss = NaN(T,1);
+
+% Build regressors X_t = [1, Z_{t-1}..Z_{t-p}, h_t..h_{t-J}] (rows aligned with Z).
 Xlag = cf.model.make_lag_matrix(Z, mconf.p);
 Hlags = NaN(T, mconf.J+1);
-for j=0:mconf.J
-    Hlags(:,j+1) = lagmatrix(st.h, j);
+for j = 0:mconf.J
+    Hlags(:, j+1) = lagmatrix(st.h, j);
 end
 Xfull = [ones(T,1), Xlag, Hlags];
 
-start = mconf.p + 1;
+% Structural matrices for both regimes
+A1 = st.A1;
+A2 = st.A2;
 
-% Moments of log(chi2_n)
-m_v = psi(n/2) + log(2);     % E[log chi2_n]
-v_v = psi(1, n/2);           % Var[log chi2_n] (trigamma)
-R   = max(v_v, 1e-8);        % measurement variance
-
-% Construct pseudo-observation y_t ≈ h_t + e_t
-y = NaN(T,1);
-
-for t = start:T
-    if isfield(st,'Svalid') && ~isempty(st.Svalid) && ~st.Svalid(t), continue; end
-    if any(~isfinite(Z(t,:))) || any(~isfinite(Xfull(t,:))), continue; end
-
-    x = Xfull(t,:)';
-    z = Z(t,:)';
+% Compute u_t for all t where regressors are finite and regime indicator is valid.
+for t = 1:T
+    if ~st.Svalid(t), continue; end
+    if ~all(isfinite(Xfull(t,:))) || ~all(isfinite(Z(t,:)))
+        continue
+    end
 
     if st.S(t)==1
-        eps = z - (st.Phi1 * x);
-        u   = st.A1 * eps;
+        Phi = st.Phi1;
+        A   = A1;
     else
-        eps = z - (st.Phi2 * x);
-        u   = st.A2 * eps;
+        Phi = st.Phi2;
+        A   = A2;
     end
 
-    s = sum( (u.^2) ./ st.sigma2(:) );
-    s = max(s, 1e-12);
+    eps_t = Z(t,:)' - Phi*Xfull(t,:)';
+    u_t   = A*eps_t;
 
-    y(t) = log(s) - m_v;
+    % ss_t = sum_j u_{j,t}^2 / sigma_j^2
+    ss(t) = sum((u_t.^2) ./ st.sigma2(:));
 end
 
-% State equation: h_t = c + F*h_{t-1} + eta_t
-F  = min(max(st.F, 0.001), 0.9999);
-Q  = max(st.Q, 1e-10);
-mu = st.mu;
-c  = (1 - F) * mu;
-
-% Stationary initial distribution
-a1 = mu;
-P1 = Q / max(1 - F^2, 1e-8);
-
-% Kalman filter
-a_pred = zeros(T,1); P_pred = zeros(T,1);
-a_filt = zeros(T,1); P_filt = zeros(T,1);
-
-a_pred(1) = a1; P_pred(1) = P1;
-
-if isfinite(y(1))
-    v  = y(1) - a_pred(1);
-    S  = P_pred(1) + R;
-    K  = P_pred(1) / S;
-    a_filt(1) = a_pred(1) + K*v;
-    P_filt(1) = (1 - K)*P_pred(1);
-else
-    a_filt(1) = a_pred(1);
-    P_filt(1) = P_pred(1);
 end
 
-for t = 2:T
-    a_pred(t) = c + F*a_filt(t-1);
-    P_pred(t) = F^2 * P_filt(t-1) + Q;
+function [m, v] = cond_prior_h(t, h, mu, F, Q)
+% Conditional prior moments for h_t given neighbors under AR(1) with drift.
+%
+% h_t = (1-F)*mu + F*h_{t-1} + eta_t, eta_t ~ N(0,Q)
 
-    if isfinite(y(t))
-        v  = y(t) - a_pred(t);
-        S  = P_pred(t) + R;
-        K  = P_pred(t) / S;
-        a_filt(t) = a_pred(t) + K*v;
-        P_filt(t) = (1 - K)*P_pred(t);
-    else
-        a_filt(t) = a_pred(t);
-        P_filt(t) = P_pred(t);
+T = numel(h);
+
+% Stationary variance for the initial state
+V0 = Q / max(1e-12, (1 - F^2));
+
+if t==1
+    % h1 | h2
+    if T==1
+        m = mu;
+        v = V0;
+        return
     end
+    % Prior: h1 ~ N(mu, V0); likelihood from transition to h2.
+    v = 1 / (1/V0 + (F^2)/Q);
+    m = v * (mu/V0 + (F*(h(2) - (1-F)*mu))/Q);
+    return
 end
 
-% Backward simulation (Carter-Kohn)
-h_draw = zeros(T,1);
-h_draw(T) = a_filt(T) + sqrt(max(P_filt(T),1e-12))*randn();
-
-for t = T-1:-1:1
-    denom = max(P_pred(t+1), 1e-12);
-    Jt    = P_filt(t) * F / denom;
-
-    m = a_filt(t) + Jt*(h_draw(t+1) - a_pred(t+1));
-    V = P_filt(t) - (Jt^2)*P_pred(t+1);
-    V = max(V, 1e-12);
-
-    h_draw(t) = m + sqrt(V)*randn();
+if t==T
+    % hT | h_{T-1}
+    m = (1-F)*mu + F*h(T-1);
+    v = Q;
+    return
 end
 
-st.h = h_draw;
-
-% For book-keeping : counting the nbr of updates
-if ~isfield(st,'accept') || isempty(st.accept)
-    st.accept = struct();
-end
-if ~isfield(st.accept,'h_updates')
-    st.accept.h_updates = 0;
-end
-st.accept.h_updates = st.accept.h_updates + 1;
+% Interior: h_t | h_{t-1}, h_{t+1}
+v = Q / (1 + F^2);
+m = mu + (F*((h(t-1)-mu) + (h(t+1)-mu))) / (1 + F^2);
 
 end
 
